@@ -5,12 +5,40 @@ from supabase import create_client, Client
 from services.rag import finansal_haberleri_vektorle, yapay_zeka_kocuna_sor, yerel_piyasa_ve_halka_arz_ogret
 from services.finance import get_live_price # Yazdığımız servisi içeri aldık
 from services.simulasyon import finansal_simulasyon_yap
+from contextlib import asynccontextmanager
+import asyncio
+from services.alarm import fiyat_kontrol_dongusu
 
 # .env dosyasındaki şifreleri sisteme yükle
 load_dotenv()
 
-# FastAPI uygulamasını başlat
-app = FastAPI(title="ZeminKatRAG API")
+# Sunucu açıldığında ve kapandığında ne yapılacağını belirleyen yaşam döngüsü
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Sunucu başlarken alarm motorunu arka planda yeni bir görev olarak başlat
+    alarm_gorevi = asyncio.create_task(fiyat_kontrol_dongusu())
+    yield
+    # Sunucu kapanırken görevi iptal et
+    alarm_gorevi.cancel()
+
+# FastAPI uygulamasını oluştururken lifespan'i tanımlıyoruz
+app = FastAPI(
+    title="ZeminKatRAG API",
+    lifespan=lifespan
+)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+# ... (app = FastAPI(...) satırının hemen altına ekle) ...
+
+# Hackathon için dışarıdan gelen tüm isteklere (Flutter vb.) kapıları ardına kadar açıyoruz
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Supabase Bağlantısı
 url: str = os.environ.get("SUPABASE_URL")
@@ -83,3 +111,29 @@ def simulasyon_calistir(veri: SimulasyonModeli):
         veri.risk_profili
     )
     return sonuc
+
+from pydantic import BaseModel
+from typing import Optional
+import os
+from supabase import create_client
+
+class AlarmModeli(BaseModel):
+    kullanici_id: str
+    varlik_sembolu: str
+    alt_limit: Optional[float] = None
+    ust_limit: Optional[float] = None
+
+@app.post("/api/alarm/kur")
+def alarm_kur(veri: AlarmModeli):
+    try:
+        supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
+        alarm_verisi = {
+            "kullanici_id": veri.kullanici_id,
+            "varlik_sembolu": veri.varlik_sembolu.upper(),
+            "alt_limit": veri.alt_limit,
+            "ust_limit": veri.ust_limit
+        }
+        supabase.table("alarmlar").insert(alarm_verisi).execute()
+        return {"durum": "başarılı", "mesaj": f"{veri.varlik_sembolu} için alarm başarıyla kuruldu."}
+    except Exception as e:
+        return {"durum": "hata", "mesaj": str(e)}
