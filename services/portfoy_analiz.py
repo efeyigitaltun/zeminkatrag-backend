@@ -5,9 +5,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-llm = ChatGoogleGenerativeAI(
+# DÜZELTME BURADA YAPILDI: llm yerine llm_ana
+llm_ana = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash", 
     google_api_key=os.environ.get("GEMINI_API_KEY")
+)
+
+llm_yedek = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash", 
+    google_api_key=os.environ.get("GEMINI_API_KEY_BACKUP")
 )
 
 def portfoy_saglik_skoru_hesapla(varliklar: list, risk_profili: str):
@@ -48,7 +54,15 @@ def portfoy_saglik_skoru_hesapla(varliklar: list, risk_profili: str):
         }}
         """
 
-        cevap = llm.invoke(prompt)
+        try:
+            cevap = llm_ana.invoke(prompt)
+        except Exception as e:
+            hata_mesaji = str(e)
+            if "429" in hata_mesaji or "RESOURCE_EXHAUSTED" in hata_mesaji:
+                print("⚠️ [DİKKAT] Ana API Limiti Doldu! Yedek Motora Geçiliyor...")
+                cevap = llm_yedek.invoke(prompt)
+            else:
+                raise e # Limit dışı başka bir hataysa normal şekilde fırlat
         
         # Gemini'dan gelen JSON metnini temizleyip Python sözlüğüne çeviriyoruz
         temiz_json = cevap.content.replace("```json", "").replace("```", "").strip()
