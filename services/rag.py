@@ -73,54 +73,54 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=os.environ.get("GEMINI_API_KEY")
 )
 
-def yapay_zeka_kocuna_sor(soru: str):
+def yapay_zeka_kocuna_sor(soru: str, risk_profili: str = "orta"):
     """
-    Kullanıcının sorusunu alır, Supabase'deki haberlerle eşleştirir ve Gemini'a cevaplatır.
+    Kullanıcının sorusunu risk profiliyle harmanlar, hafızadaki haberlerle 
+    eşleştirir ve analojiler kullanarak profesyonelce cevaplar.
     """
     try:
-        # 1. Kullanıcının sorusunu da 3072 boyutlu vektöre çevir (Aynı dili konuşmaları için)
+        # 1. Soruyu vektöre çevir ve en benzer haberleri getir
         soru_vektoru = embeddings.embed_query(soru)
-        
-        # 2. Supabase'deki 'match_haberler' fonksiyonumuzu çalıştırıp en benzer 5 haberi getir
         response = supabase.rpc(
             "match_haberler",
             {
                 "query_embedding": soru_vektoru,
-                "match_threshold": 0.3, # Benzerlik oranı (0.3 ve üstü olanları getir)
+                "match_threshold": 0.25, # Daha esnek arama için eşiği biraz düşürdük
                 "match_count": 5
             }
         ).execute()
         
         benzer_haberler = response.data
-        
-        # 3. Gelen haberleri alt alta ekleyip "Bağlam" (Context) oluştur
         if benzer_haberler:
             baglam = "\n".join([f"- {h['haber_metni']}" for h in benzer_haberler])
         else:
-            baglam = "Sistemde bu konuyla ilgili güncel haber bulunmuyor."
+            baglam = "Sistemde bu varlıkla ilgili doğrudan çok taze bir haber akışı yok."
             
-        # 4. Gemini'a gidecek Prompt'u hazırla (Prompt Engineering)
-        prompt = f"""Sen ZeminKatRAG uygulamasının profesyonel finansal yapay zeka koçusun.
-        Aşağıdaki güncel piyasa haberlerini kullanarak kullanıcının sorusunu yanıtla.
-        Eğer sorunun cevabı haberlerde yoksa, genel finansal bilginle cevap ver ama güncel verinin eksik olduğunu belirt.
+        # 2. Gelişmiş Prompt Tasarımı (Kafandaki tüm kuralları buraya işledik)
+        prompt = f"""Sen ZeminKatRAG uygulamasının üst düzey finansal yapay zeka koçusun. 
+        Amacın, finansal okuryazarlığı artırmak ve kullanıcılara rehberlik etmektir.
 
-        Güncel Haberler (Bağlam):
+        [KURALLAR]
+        1. Yeni başlayan yatırımcıları ürkütmemek için karmaşık finansal terimleri (enflasyon, kaldıraç, likidite, RAG vb.) mutlaka günlük hayattan basit analojilerle (benzetmelerle) açıkla.
+        2. Kullanıcının mevcut risk profili: **{risk_profili.upper()}**. Cevaplarını bu profile göre şekillendir. Eğer risk profili 'yüksek' ise inovatif varlıklara (kripto, teknoloji hisseleri) değinebilirsin; 'düşük' ise korumacı varlıklara (altın, devlet tahvili, likidite fonları) yönlendir.
+        3. Doğrudan 'al/sat' sinyali verme. Analiz sun ama cümlenin sonuna mutlaka profesyonel ve yasal bir sorumluluk reddi (Yatırım tavsiyesi değildir) ibaresi ekle.
+
+        [GÜNCEL PİYASA BİLGİLERİ]
         {baglam}
 
-        Kullanıcının Sorusu: {soru}
+        [KULLANICININ SORUSU]
+        {soru}
         """
         
-        # 5. Gemini'dan cevabı al
+        # 3. Gemini'ı çalıştır
         cevap = llm.invoke(prompt)
-
-        # HANGİ HABERLERİ KULLANDIĞINI LİSTELEYELİM
         kullanilan_kaynaklar = [h['haber_metni'] for h in benzer_haberler]
         
         return {
             "durum": "başarılı", 
             "cevap": cevap.content, 
             "kullanilan_haber_sayisi": len(benzer_haberler),
-            "referans_haberler": kullanilan_kaynaklar # Gözümüzle görelim!
+            "referans_haberler": kullanilan_kaynaklar
         }
         
     except Exception as e:
