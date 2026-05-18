@@ -1,81 +1,106 @@
 import os
 import asyncio
 import yfinance as yf
+from datetime import datetime, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
-# Supabase Bağlantısı
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(url, key)
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(supabase_url, supabase_key)
+
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+
+def dinamik_sembol_cozucu(sembol: str):
+    """Kullanıcının girdiği sembolün gerçek piyasa karşılığını akıllıca bulur."""
+    sembol = sembol.upper().strip()
+    
+    # Eğer zaten doğru formatta geldiyse (.IS veya -USD varsa) direkt onu kullan
+    if sembol.endswith(".IS") or "-USD" in sembol:
+        return sembol
+        
+    varyasyonlar = []
+    bilinen_kriptolar = [
+        "BTC", "ETH", "USDT", "BNB", "SOL", "XRP", "ADA", "AVAX", 
+        "DOGE", "DOT", "LINK", "TRX", "SHIB", "ETC", "LTC", "BCH"
+    ]
+    
+    # AKILLI TAHMİN ALGORİTMASI
+    if sembol in bilinen_kriptolar:
+        # Kriptoysa önce -USD denesin
+        varyasyonlar = [f"{sembol}-USD", sembol]
+    else:
+        # Değilse muhtemelen Türk Hissesidir, önce .IS denesin, sonra Amerikan denesin
+        varyasyonlar = [f"{sembol}.IS", sembol, f"{sembol}-USD"]
+    
+    for denenen in varyasyonlar:
+        try:
+            varlik = yf.Ticker(denenen)
+            fiyat = varlik.fast_info['lastPrice'] 
+            if fiyat > 0:
+                return denenen # Doğruyu ilk seferde bulduk, dön!
+        except Exception:
+            pass # Gevezelik yapma, sessizce diğerine geç
+            
+    return sembol
+
+def alarmlari_kontrol_et():
+    """Arka planda çalışıp fiyatları kontrol eden ve tetiği çeken fonksiyon."""
+    try:
+        yanit = supabase.table("alarmlar").select("*").eq("aktif_mi", True).eq("durum", "bekliyor").execute()
+        bekleyen_alarmlar = yanit.data
+
+        if not bekleyen_alarmlar:
+            return {"durum": "bilgi", "mesaj": "Bekleyen alarm yok."}
+
+        tetiklenen_sayisi = 0
+
+        for alarm in bekleyen_alarmlar:
+            orijinal_sembol = alarm["varlik_sembolu"]
+            ust_limit = alarm.get("ust_limit")
+            alt_limit = alarm.get("alt_limit")
+
+            # --- DİNAMİK ÇÖZÜCÜYÜ KULLAN ---
+            dogru_sembol = dinamik_sembol_cozucu(orijinal_sembol)
+                
+            varlik = yf.Ticker(dogru_sembol)
+            anlik_fiyat = varlik.fast_info['lastPrice']
+
+            tetiklendi_mi = False
+
+            if ust_limit and anlik_fiyat >= ust_limit:
+                tetiklendi_mi = True
+            elif alt_limit and anlik_fiyat <= alt_limit:
+                tetiklendi_mi = True
+
+            if tetiklendi_mi:
+                simdi = datetime.now(timezone.utc).isoformat()
+                
+                supabase.table("alarmlar").update({
+                    "tetiklendi_mi": True,
+                    "aktif_mi": False,
+                    "durum": "tetiklendi",
+                    "tetiklenme_fiyati": round(anlik_fiyat, 2),
+                    "tetiklenme_zamani": simdi
+                }).eq("id", alarm["id"]).execute()
+                
+                tetiklenen_sayisi += 1
+                print(f"🔔 ALARM TETİKLENDİ: {orijinal_sembol} ({dogru_sembol}) -> Fiyat: {anlik_fiyat}")
+
+        return {"durum": "başarılı", "mesaj": f"{tetiklenen_sayisi} adet alarm tetiklendi."}
+
+    except Exception as e:
+        print(f"Alarm Motoru Hatası: {e}")
+        return {"durum": "hata", "mesaj": str(e)}
 
 async def fiyat_kontrol_dongusu():
-    """
-    Sunucu çalıştığı sürece arka planda sonsuz bir döngüde çalışır.
-    Aktif alarmları veritabanından çeker, yfinance ile güncel fiyatlara bakar.
-    Hedef tutarsa alarmı 'tetiklendi' olarak günceller.
-    """
-    print("🚀 Arka Plan Alarm Motoru Başlatıldı! Gözler piyasada...")
-    
+    print("🚀 Arka Plan Alarm Motoru Başlatıldı! (60 saniyede bir kontrol edilecek)")
     while True:
         try:
-            # 1. Supabase'den sadece 'aktif_mi = true' olan alarmları çek
-            response = supabase.table("alarmlar").select("*").eq("aktif_mi", True).execute()
-            alarmlar = response.data
-            
-            if not alarmlar:
-                # Aktif alarm yoksa sistemi yorma, 60 saniye uyu ve tekrar bak
-                await asyncio.sleep(60)
-                continue
-                
-            # 2. Aynı hisse için yfinance'e 10 kere istek atmamak için sembolleri tekilleştir
-            semboller = list(set([alarm["varlik_sembolu"] for alarm in alarmlar]))
-            
-            fiyatlar = {}
-            for sembol in semboller:
-                try:
-                    varlik = yf.Ticker(sembol)
-                    # fast_info anlık fiyat çekmek için en hızlı yöntemdir
-                    guncel_fiyat = varlik.fast_info['lastPrice'] 
-                    fiyatlar[sembol] = guncel_fiyat
-                except Exception:
-                    continue # Bir hissede hata olursa diğerlerine geç
-                    
-            # 3. Çekilen güncel fiyatlar ile kullanıcının alarmlarını kıyasla
-            for alarm in alarmlar:
-                sembol = alarm["varlik_sembolu"]
-                fiyat = fiyatlar.get(sembol)
-                
-                if not fiyat:
-                    continue
-                    
-                tetiklendi = False
-                mesaj = ""
-                
-                # Yukarı kırılım kontrolü (Örn: BTC 70 bini geçerse)
-                if alarm["ust_limit"] and fiyat >= alarm["ust_limit"]:
-                    tetiklendi = True
-                    mesaj = f"YUKARI KIRILIM: {sembol} hedeflenen {alarm['ust_limit']} seviyesini geçti! (Anlık: {fiyat:.2f})"
-                    
-                # Aşağı kırılım kontrolü (Örn: BTC 60 binin altına düşerse)
-                elif alarm["alt_limit"] and fiyat <= alarm["alt_limit"]:
-                    tetiklendi = True
-                    mesaj = f"AŞAĞI KIRILIM: {sembol} hedeflenen {alarm['alt_limit']} seviyesinin altına düştü! (Anlık: {fiyat:.2f})"
-                    
-                # 4. Eğer alarm koşulu sağlandıysa veritabanını güncelle ve bildir
-                if tetiklendi:
-                    print(f"🔔 [ALARM TETİKLENDİ] {mesaj}")
-                    
-                    # Supabase'de alarmı kapat ki sürekli ötmesin
-                    supabase.table("alarmlar").update({
-                        "tetiklendi_mi": True,
-                        "aktif_mi": False
-                    }).eq("id", alarm["id"]).execute()
-                    
+            alarmlari_kontrol_et()
         except Exception as e:
-            print(f"Alarm Motoru Hatası: {e}")
-            
-        # Döngüyü 60 saniye beklet (Sunucu çökmesin diye çok önemli)
+            print(f"Alarm Döngüsü Hatası: {e}")
         await asyncio.sleep(60)

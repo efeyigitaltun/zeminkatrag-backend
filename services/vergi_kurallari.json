@@ -1,0 +1,20 @@
+{
+    "versiyon": "2024_2025_GUNCEL_MEVZUAT",
+    "yasal_uyari": "Yasal Uyarı: Bu veriler tahmini oranlardır ve Türkiye Cumhuriyeti güncel vergi mevzuatını %100 yansıtmayabilir. Kesin vergi yükümlülükleriniz için mali müşavirinize danışınız.",
+    "hisse": {
+        "aciklama": "BIST Hisseleri. Kurum komisyonu ortalama binde 2'dir. Bireysel yatırımcı için değer artış kazancında stopaj %0'dır.",
+        "komisyon_orani": 0.002,
+        "stopaj_orani": 0.0
+    },
+    "fon": {
+        "aciklama": "TEFAS Yatırım Fonları. Hisse yoğun olmayan fonlarda standart stopaj %10'dur. Ortalama Yıllık Yönetim Ücreti (TER) %2.5'tir.",
+        "yillik_yonetim_gideri_orani": 0.025,
+        "stopaj_orani": 0.10
+    },
+    "kripto": {
+        "aciklama": "Yeni SPK Kripto Yasası'na göre platform hizmet bedelleri komisyona yedirilir. Bireysel gelir vergisi şu an %0'dır ancak işlem vergisi gelirse buradan güncellenecektir.",
+        "komisyon_orani": 0.002,
+        "islem_vergisi_orani": 0.0,
+        "gelir_vergisi_orani": 0.0
+    }
+}

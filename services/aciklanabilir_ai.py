@@ -1,22 +1,9 @@
-import os
-import json
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
-
-load_dotenv()
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
-    google_api_key=os.environ.get("GEMINI_API_KEY")
-)
+from services.ai_core import guvenli_llm_cagir, guvenli_json_parse
 
 def oneriyi_acikla(onerilen_islem: str, risk_profili: str, hedef_sure_ay: int, piyasa_ozeti: str):
-    """
-    Yapay zekanın verdiği bir önerinin arkasındaki 4 ana kriteri açıklar.
-    """
+    """Yapay zekanın verdiği bir önerinin arkasındaki 4 ana kriteri açıklar."""
     try:
         prompt = f"""Sen ZeminKatRAG'in Şeffaf Yapay Zeka (XAI) motorusun. 
-        Bir yatırım önerisi verildi ve kullanıcı 'Neden?' diye soruyor. 
         Şu verilere dayanarak önerinin mantıksal dayanaklarını açıkla:
 
         [VERİLER]
@@ -27,17 +14,21 @@ def oneriyi_acikla(onerilen_islem: str, risk_profili: str, hedef_sure_ay: int, p
 
         Lütfen SADECE aşağıdaki yapıda geçerli bir JSON formatında cevap ver:
         {{
-            "risk_uyumu_analizi": "Önerinin kullanıcının risk profiline (düşük/orta/yüksek) nasıl hizmet ettiği.",
-            "vade_analizi": "Vade süresinin (kısa/uzun) bu varlık için neden uygun olduğu.",
-            "piyasa_dayanagi": "Haber akışı ve piyasa trendlerinin bu öneriyi nasıl desteklediği.",
-            "guven_skoru": "100 üzerinden bu öneriye duyulan güven derecesi"
+            "risk_uyumu_analizi": "Önerinin kullanıcının risk profiline nasıl hizmet ettiği.",
+            "vade_analizi": "Vade süresinin bu varlık için neden uygun olduğu.",
+            "piyasa_dayanagi": "Piyasa trendlerinin bu öneriyi nasıl desteklediği.",
+            "guven_skoru": 95
         }}
         """
 
-        cevap = llm.invoke(prompt)
-        temiz_json = cevap.content.replace("```json", "").replace("```", "").strip()
-        
-        return {"durum": "başarılı", "aciklama": json.loads(temiz_json)}
+        # Çekirdek motor çağrısı ve merkezi parse işlemi
+        cevap = guvenli_llm_cagir(prompt)
+        aciklama_sonucu = guvenli_json_parse(cevap.text)
+
+        if aciklama_sonucu.get("durum") == "hata":
+            return aciklama_sonucu
+
+        return {"durum": "başarılı", "aciklama": aciklama_sonucu}
 
     except Exception as e:
         return {"durum": "hata", "mesaj": str(e)}

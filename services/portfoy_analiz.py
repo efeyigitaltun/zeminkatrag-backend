@@ -8,12 +8,12 @@ load_dotenv()
 # DÜZELTME BURADA YAPILDI: llm yerine llm_ana
 llm_ana = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash", 
-    google_api_key=os.environ.get("GEMINI_API_KEY")
+    google_api_key=os.environ.get("GEMINI_API_KEY_ANA")
 )
 
 llm_yedek = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash", 
-    google_api_key=os.environ.get("GEMINI_API_KEY_BACKUP")
+    google_api_key=os.environ.get("GEMINI_API_KEY_YEDEK")
 )
 
 def portfoy_saglik_skoru_hesapla(varliklar: list, risk_profili: str):
@@ -55,7 +55,8 @@ def portfoy_saglik_skoru_hesapla(varliklar: list, risk_profili: str):
         """
 
         try:
-            cevap = llm_ana.invoke(prompt)
+           cevap = llm_ana.invoke(prompt)
+           
         except Exception as e:
             hata_mesaji = str(e)
             if "429" in hata_mesaji or "RESOURCE_EXHAUSTED" in hata_mesaji:

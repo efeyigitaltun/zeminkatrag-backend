@@ -7,7 +7,7 @@ load_dotenv()
 # Gemini Modeli Bağlantısı
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash", 
-    google_api_key=os.environ.get("GEMINI_API_KEY")
+    google_api_key=os.environ.get("GEMINI_API_KEY_ANA")
 )
 
 def finansal_simulasyon_yap(aylik_gelir: float, aylik_gider: float, hedef: str, risk_profili: str = "orta"):
