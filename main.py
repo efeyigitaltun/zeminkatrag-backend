@@ -13,25 +13,32 @@ from services.portfoy_analiz import portfoy_saglik_skoru_hesapla
 from services.davranis_analizi import davranisal_bias_tespit_et
 from services.vergi_maliyet import vergi_ve_maliyet_hesapla
 from services.aciklanabilir_ai import oneriyi_acikla
-
+from services.alarm import alarmlari_kontrol_et
 # .env dosyasındaki şifreleri sisteme yükle
 load_dotenv()
 
 # Sunucu açıldığında ve kapandığında ne yapılacağını belirleyen yaşam döngüsü
+_bekci_task = None # Görevi Python silmesin diye global kalkan
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Sunucu başlarken alarm motorunu arka planda yeni bir görev olarak başlat
-    alarm_gorevi = asyncio.create_task(fiyat_kontrol_dongusu())
-    yield
+    global _bekci_task
+    print("🚀 ZeminKatRAG Lifespan Başladı! Arka plan bekçisi uyanıyor...")
+    
+    # Senin yazdığın alarm_kontrol_bekcisi fonksiyonunu başlatıyoruz
+    _bekci_task = asyncio.create_task(alarm_kontrol_bekcisi())
+    
+    yield # Sunucu çalıştığı sürece burası bekler
+    
     # Sunucu kapanırken görevi iptal et
-    alarm_gorevi.cancel()
+    print("🛑 Sunucu kapanıyor, bekçi durduruldu.")
+    if _bekci_task:
+        _bekci_task.cancel()
 
-# FastAPI uygulamasını oluştururken lifespan'i tanımlıyoruz
 app = FastAPI(
     title="ZeminKatRAG API",
     lifespan=lifespan
 )
-
 from fastapi.middleware.cors import CORSMiddleware
 
 # ... (app = FastAPI(...) satırının hemen altına ekle) ...
@@ -136,11 +143,19 @@ def alarm_kur(veri: AlarmModeli):
             "kullanici_id": veri.kullanici_id,
             "varlik_sembolu": veri.varlik_sembolu.upper(),
             "alt_limit": veri.alt_limit,
-            "ust_limit": veri.ust_limit
+            "ust_limit": veri.ust_limit,
+            "aktif_mi": True,       
+            "durum": "bekliyor",     
+            "tetiklendi_mi": False   
         }
-        supabase.table("alarmlar").insert(alarm_verisi).execute()
+        
+        # SADECE BURAYI DEĞİŞTİRİYORUZ (Yanıtı yakalayıp print ediyoruz)
+        yanit = supabase.table("alarmlar").insert(alarm_verisi).execute()
+        print(f"📥 [SUPABASE YANITI]: {yanit.data}")
+        
         return {"durum": "başarılı", "mesaj": f"{veri.varlik_sembolu} için alarm başarıyla kuruldu."}
     except Exception as e:
+        print(f"❌ [ALARM KURMA HATASI]: {str(e)}")
         return {"durum": "hata", "mesaj": str(e)}
     
     # PORTFÖY SAĞLIK SKORU UCU
@@ -182,19 +197,19 @@ def davranis_analizi_yap(veri: IslemGecmisiSorgusu):
     return sonuc
 
 # VERGİ VE MALİYET OPTİMİZASYON UCU
-class MaliyetSorgusu(BaseModel):
-    varlik_tipi: str # "hisse", "fon", "kripto"
+class VergiRequest(BaseModel):
+    varlik_tipi: str
     alis_tutari: float
     satis_tutari: float
     elde_tutma_suresi_ay: int
 
-@app.post("/api/portfoy/maliyet")
-def maliyet_optimizasyonu_yap(veri: MaliyetSorgusu):
+@app.post("/api/vergi_maliyet")
+def vergi_maliyet_hesapla_endpoint(istek: VergiRequest):
     sonuc = vergi_ve_maliyet_hesapla(
-        veri.varlik_tipi, 
-        veri.alis_tutari, 
-        veri.satis_tutari, 
-        veri.elde_tutma_suresi_ay
+        varlik_tipi=istek.varlik_tipi,
+        alis_tutari=istek.alis_tutari,
+        satis_tutari=istek.satis_tutari,
+        elde_tutma_suresi_ay=istek.elde_tutma_suresi_ay
     )
     return sonuc
 
@@ -209,3 +224,21 @@ class AciklamaSorgusu(BaseModel):
 def onerinin_nedenini_sor(veri: AciklamaSorgusu):
     sonuc = oneriyi_acikla(veri.onerilen_islem, veri.risk_profili, veri.hedef_sure_ay, veri.piyasa_ozeti)
     return sonuc
+
+# 1. HİÇ UYUMAYAN ARKA PLAN BEKÇİSİ (WORKER)
+async def alarm_kontrol_bekcisi():
+    """Sunucu açık olduğu sürece 60 saniyede bir alarmları otomatik kontrol eder."""
+    while True:
+        try:
+            print("🔔 Arka plan bekçisi uyanıyor: Alarmlar kontrol ediliyor...")
+            
+            # Burada senin veritabanına bakıp fiyatları check eden fonksiyonun çalışacak:
+            alarmlari_kontrol_et()
+            
+            print("💤 Kontrol tamamlandı, bekçi 60 saniye uykuya geçiyor...")
+        except Exception as e:
+            print(f"❌ Arka plan bekçisi hata aldı ama durmadı: {e}")
+        
+        # Sistemi kilitlemeden 60 saniye boyunca arka planda bekletir
+        await asyncio.sleep(60)
+

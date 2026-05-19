@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # Bu kod, ai_core.py'ın bulunduğu yerden 1 klasör yukarı çıkıp (kök dizin) .env dosyasını nokta atışı bulur.
 proje_kok_dizini = Path(__file__).resolve().parent.parent
 env_yolu = proje_kok_dizini / ".env"
-load_dotenv(dotenv_path=env_yolu)
+load_dotenv(dotenv_path=env_yolu, override=True)
 
 # --- GEÇİCİ LOG TESTİ ---
 print("🔍 .env içinden okunan ANA anahtar kelimesi:", os.environ.get("GEMINI_API_KEY_ANA"))
@@ -30,7 +30,7 @@ def guvenli_llm_cagir(prompt: str):
         if not ana_key:
             raise ValueError("Ana API anahtarı .env dosyasında bulunamadı veya içi boş.")
             
-        client = genai.Client(api_key=ana_key, http_options={'api_version': 'v1'})
+        client = genai.Client(api_key=ana_key)
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt

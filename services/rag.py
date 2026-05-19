@@ -10,6 +10,9 @@ supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
+aktif_anahtar = os.environ.get("GEMINI_API_KEY_ANA")
+print(f"🔍 [RAG TEST] Vektörleme için kullanılan anahtarın son 4 hanesi: {aktif_anahtar[-4:]}")
+
 embeddings = GoogleGenerativeAIEmbeddings(
     model="models/gemini-embedding-001", 
     google_api_key=os.environ.get("GEMINI_API_KEY_ANA")
